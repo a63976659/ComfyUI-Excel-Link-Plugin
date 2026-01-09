@@ -1188,7 +1188,8 @@ class 写入Excel数据:
             return (f"错误: {str(e)}",)
 
 
-#======图片插入表格
+#======图片插入表格（优化版）
+#======图片插入表格（优化版，支持单元格对齐）
 class 写入Excel图片:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1199,6 +1200,15 @@ class 写入Excel图片:
                 "行范围": ("STRING", {"default": "1"}),
                 "列范围": ("STRING", {"default": "1"}),
                 "图片路径": ("STRING", {"default": "path/to/your/image.png"}),
+                "缩放模式": (["固定尺寸", "按比例缩放", "原图大小", "匹配单元格"], {"default": "匹配单元格"}),
+                "图片宽度": ("INT", {"default": 300, "min": 50, "max": 1000, "step": 10}),
+                "图片高度": ("INT", {"default": 200, "min": 50, "max": 1000, "step": 10}),
+                "缩放比例": ("FLOAT", {"default": 0.5, "min": 0.1, "max": 3.0, "step": 0.1}),
+                "图片质量": (["高质量", "平衡", "文件大小优先"], {"default": "平衡"}),
+                "保持宽高比": ("BOOLEAN", {"default": True}),
+                "对齐到单元格": ("BOOLEAN", {"default": True}),
+                "跨行数": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
+                "跨列数": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
             }
         }
 
@@ -1206,13 +1216,12 @@ class 写入Excel图片:
     FUNCTION = "写入Excel图片"
     CATEGORY = "【Excel】联动插件/文件处理节点"
     
-    def IS_CHANGED(self, 表格路径, 工作表名称, 行范围, 列范围, 图片路径):
-        """
-        修复 IS_CHANGED 方法 - 参数必须与 INPUT_TYPES 中定义的完全一致
-        """
+    def IS_CHANGED(self, **kwargs):
         return float("NaN")
 
-    def 写入Excel图片(self, 表格路径, 工作表名称, 行范围, 列范围, 图片路径):
+    def 写入Excel图片(self, 表格路径, 工作表名称, 行范围, 列范围, 图片路径, 
+                   缩放模式, 图片宽度, 图片高度, 缩放比例, 图片质量, 保持宽高比,
+                   对齐到单元格, 跨行数, 跨列数):
         try:
             # 处理可能的列表输入 - 提取第一个值
             def 提取单个值(输入值):
@@ -1234,58 +1243,28 @@ class 写入Excel图片:
             print(f"调试信息: 表格路径 = {表格路径}")
             print(f"调试信息: 图片路径 = {图片路径}")
             
-            # 现在进行规范化路径
+            # 规范化路径
             表格路径 = os.path.normpath(表格路径)
             图片路径 = os.path.normpath(图片路径)
-            
-            print(f"调试信息: 规范化后表格路径 = {表格路径}")
-            print(f"调试信息: 规范化后图片路径 = {图片路径}")
             
             # 检查基础权限
             if not os.path.exists(表格路径):
                 return (f"错误: Excel文件不存在: {表格路径}",)
                 
-            # 检查目录权限
-            目录 = os.path.dirname(表格路径)
-            print(f"调试信息: 目录 = {目录}")
-            
-            if not os.path.exists(目录):
-                return (f"错误: 目录不存在: {目录}",)
-                
-            # 检查目录写入权限
-            if not os.access(目录, os.W_OK):
-                return (f"错误: 没有目录写入权限: {目录}",)
-
-            # 检查文件是否被占用
-            try:
-                with open(表格路径, 'rb') as f:
-                    pass
-            except PermissionError:
-                return ("错误: Excel文件被其他进程锁定。请关闭Excel和其他可能使用此文件的应用程序。",)
-            except Exception as e:
-                print(f"调试信息: 文件访问检查异常 - {str(e)}")
-
-            # 关键检查：确保图片路径是文件而不是目录
-            if os.path.isdir(图片路径):
-                return (f"错误: 图片路径指向的是文件夹，不是图片文件: {图片路径}",)
-                
             if not os.path.exists(图片路径):
                 return (f"错误: 图片文件不存在: {图片路径}",)
                 
-            if not os.access(图片路径, os.R_OK):
-                return (f"错误: 没有图片文件读取权限: {图片路径}",)
-                
+            if os.path.isdir(图片路径):
+                return (f"错误: 图片路径指向的是文件夹: {图片路径}",)
+
             # 检查文件扩展名
-            有效扩展名 = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff'}
+            有效扩展名 = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp'}
             文件扩展名 = os.path.splitext(图片路径)[1].lower()
             if 文件扩展名 not in 有效扩展名:
-                return (f"错误: 不支持的文件格式: {文件扩展名}。支持的格式: {', '.join(有效扩展名)}",)
+                return (f"错误: 不支持的文件格式: {文件扩展名}",)
 
             # 解析行列范围
             def 解析范围(范围字符串):
-                if isinstance(范围字符串, list):
-                    范围字符串 = 范围字符串[0] if 范围字符串 else "1"
-                
                 范围字符串 = str(范围字符串).strip()
                 if "-" in 范围字符串:
                     开始, 结束 = map(int, 范围字符串.split("-"))
@@ -1300,69 +1279,156 @@ class 写入Excel图片:
             开始行 = max(1, 开始行)
             开始列 = max(1, 开始列)
 
-            print(f"调试信息: 开始加载工作簿...")
-            
             # 加载工作簿
             工作簿 = openpyxl.load_workbook(表格路径, read_only=False, data_only=True)
             
-            # 确保工作表存在
             if 工作表名称 not in 工作簿.sheetnames:
-                return (f"错误: 工作表 '{工作表名称}' 不存在。可用工作表: {', '.join(工作簿.sheetnames)}",)
+                return (f"错误: 工作表 '{工作表名称}' 不存在",)
                 
             工作表 = 工作簿[工作表名称]
             
-            print(f"调试信息: 工作簿加载成功，开始处理图片...")
-            
             # 处理图片
-            缩略图尺寸 = (128, 128)
             with PILImage.open(图片路径) as 图片对象:
-                图片对象 = 图片对象.resize(缩略图尺寸)
+                # 获取原始尺寸
+                原图宽度, 原图高度 = 图片对象.size
+                print(f"调试信息: 原始图片尺寸: {原图宽度}x{原图高度}")
+                
+                # 计算目标尺寸
+                if 缩放模式 == "原图大小":
+                    目标宽度, 目标高度 = 原图宽度, 原图高度
+                elif 缩放模式 == "按比例缩放":
+                    目标宽度 = int(原图宽度 * 缩放比例)
+                    目标高度 = int(原图高度 * 缩放比例)
+                elif 缩放模式 == "匹配单元格":
+                    # 计算单元格的像素尺寸
+                    # Excel中列宽和行高的近似像素换算
+                    列宽像素 = 工作表.column_dimensions[get_column_letter(开始列)].width * 7  # 近似换算
+                    行高像素 = 工作表.row_dimensions[开始行].height * 0.75  # 近似换算
+                    
+                    目标宽度 = int(列宽像素 * 跨列数)
+                    目标高度 = int(行高像素 * 跨行数)
+                    print(f"调试信息: 单元格尺寸 - 宽:{目标宽度}px, 高:{目标高度}px")
+                else:  # 固定尺寸
+                    if 保持宽高比:
+                        宽高比 = 原图宽度 / 原图高度
+                        if 图片宽度 / 图片高度 > 宽高比:
+                            目标宽度 = int(图片高度 * 宽高比)
+                            目标高度 = 图片高度
+                        else:
+                            目标宽度 = 图片宽度
+                            目标高度 = int(图片宽度 / 宽高比)
+                    else:
+                        目标宽度, 目标高度 = 图片宽度, 图片高度
+                
+                print(f"调试信息: 目标图片尺寸: {目标宽度}x{目标高度}")
+                
+                # 设置重采样滤波器
+                if 图片质量 == "高质量":
+                    重采样滤波器 = PILImage.Resampling.LANCZOS
+                elif 图片质量 == "文件大小优先":
+                    重采样滤波器 = PILImage.Resampling.NEAREST
+                else:
+                    重采样滤波器 = PILImage.Resampling.BILINEAR
+                
+                # 调整图片尺寸
+                if (目标宽度, 目标高度) != (原图宽度, 原图高度):
+                    图片对象 = 图片对象.resize((目标宽度, 目标高度), 重采样滤波器)
+                    print(f"调试信息: 图片已缩放至 {目标宽度}x{目标高度}")
+                
+                # 转换为RGB模式
+                if 图片对象.mode in ('RGBA', 'LA', 'P'):
+                    背景 = PILImage.new('RGB', 图片对象.size, (255, 255, 255))
+                    if 图片对象.mode == 'P':
+                        图片对象 = 图片对象.convert('RGBA')
+                    背景.paste(图片对象, mask=图片对象.split()[-1] if 图片对象.mode == 'RGBA' else None)
+                    图片对象 = 背景
+                elif 图片对象.mode != 'RGB':
+                    图片对象 = 图片对象.convert('RGB')
+                
+                # 保存图片到字节流
                 图片字节数组 = BytesIO()
-                图片对象.save(图片字节数组, format='PNG')
+                
+                保存参数 = {}
+                if 文件扩展名 in ['.jpg', '.jpeg']:
+                    if 图片质量 == "高质量":
+                        保存参数['quality'] = 95
+                    elif 图片质量 == "文件大小优先":
+                        保存参数['quality'] = 75
+                    else:
+                        保存参数['quality'] = 85
+                    图片对象.save(图片字节数组, format='JPEG', **保存参数)
+                else:
+                    if 图片质量 == "文件大小优先":
+                        保存参数['optimize'] = True
+                    图片对象.save(图片字节数组, format='PNG', **保存参数)
+                
                 图片字节数组.seek(0)
                 openpyxl图片对象 = OpenpyxlImage(图片字节数组)
 
-            # 插入图片
+            # 插入图片并设置位置
             单元格地址 = get_column_letter(开始列) + str(开始行)
+            
+            if 对齐到单元格:
+                # 使用锚点设置精确位置，让图片对齐到单元格
+                from openpyxl.drawing.spreadsheet_drawing import AnchorMarker
+                
+                # 创建锚点对象，让图片固定在单元格内
+                列字母 = get_column_letter(开始列)
+                
+                # 设置图片位置和大小以匹配单元格
+                openpyxl图片对象.anchor = 单元格地址
+                
+                # 如果指定了跨行列，调整图片大小
+                if 跨行数 > 1 or 跨列数 > 1:
+                    结束列字母 = get_column_letter(开始列 + 跨列数 - 1)
+                    结束行号 = 开始行 + 跨行数 - 1
+                    print(f"调试信息: 图片跨 {跨列数}列 {跨行数}行, 范围: {单元格地址}:{结束列字母}{结束行号}")
+                
+                print(f"调试信息: 图片将对齐到单元格 {单元格地址}")
+            
             工作表.add_image(openpyxl图片对象, 单元格地址)
+            
+            # 调整行高和列宽以适应图片（可选）
+            if 对齐到单元格 and 缩放模式 == "匹配单元格":
+                try:
+                    # 设置行高（以磅为单位）
+                    行高磅数 = 目标高度 * 0.75  # 近似换算
+                    工作表.row_dimensions[开始行].height = 行高磅数
+                    
+                    # 设置列宽（以字符数为单位）
+                    列宽字符数 = 目标宽度 / 7  # 近似换算
+                    工作表.column_dimensions[get_column_letter(开始列)].width = 列宽字符数
+                    
+                    print(f"调试信息: 已调整行高为 {行高磅数:.2f}磅, 列宽为 {列宽字符数:.2f}字符")
+                except Exception as adjust_error:
+                    print(f"警告: 调整行列尺寸失败: {adjust_error}")
             
             print(f"调试信息: 图片插入完成，开始保存...")
             
-            # 方案A: 直接保存
+            # 保存工作簿
             try:
                 工作簿.save(表格路径)
                 工作簿.close()
-                print(f"调试信息: 直接保存成功")
-                return ("图片插入成功!",)
+                return (f"图片插入成功! 尺寸: {目标宽度}x{目标高度}, 位置: {单元格地址}",)
             except PermissionError:
-                print(f"调试信息: 直接保存失败，尝试临时文件方案...")
                 工作簿.close()
-                
-                # 方案B: 使用临时文件方案
+                # 使用临时文件方案
                 import tempfile
                 import shutil
                 
                 临时目录 = tempfile.gettempdir()
                 临时文件 = os.path.join(临时目录, f"temp_excel_{os.getpid()}_{os.path.basename(表格路径)}")
                 
-                print(f"调试信息: 临时文件路径 = {临时文件}")
-                
-                # 重新加载工作簿到临时文件
                 工作簿2 = openpyxl.load_workbook(表格路径, read_only=False, data_only=True)
                 工作表2 = 工作簿2[工作表名称]
-                
-                # 重新插入图片
                 工作表2.add_image(openpyxl图片对象, 单元格地址)
-                
                 工作簿2.save(临时文件)
                 工作簿2.close()
                 
-                # 复制回原位置
                 shutil.copy2(临时文件, 表格路径)
                 os.remove(临时文件)
                 
-                print(f"调试信息: 临时文件方案成功")
-                return ("图片插入成功!",)
+                return (f"图片插入成功! 尺寸: {目标宽度}x{目标高度}, 位置: {单元格地址}",)
                 
         except PermissionError as pe:
             return (f"权限错误: {str(pe)}",)
@@ -1371,7 +1437,6 @@ class 写入Excel图片:
             error_details = traceback.format_exc()
             print(f"详细错误信息: {error_details}")
             return (f"错误: {str(e)}",)
-
 
 #======查找表格数据
 class 查找Excel数据:

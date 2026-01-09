@@ -5,34 +5,190 @@ from PIL import Image
 from datetime import datetime
 from . import any_typ, note
 
-#======当前时间(戳)
+#======当前时间(戳) - 改进版
 class 获取当前时间:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "前缀": ("STRING", {"default": ""})
+                "前缀": ("STRING", {"default": ""}),
+                "时间格式": (["标准日期时间", "仅日期", "仅时间", "时间戳", "自定义"], {"default": "标准日期时间"}),
+                "自定义格式": ("STRING", {"default": "%Y-%m-%d %H:%M:%S"}),
+                "输出格式": (["字符串", "Excel日期", "两者"], {"default": "字符串"}),
             },
             "optional": {"任意": (any_typ,)} 
         }
     
-    RETURN_TYPES = ("STRING", "INT")
-    RETURN_NAMES = ("时间文本", "时间戳")
+    # 增加一个输出端口，用于输出任意输入
+    RETURN_TYPES = ("STRING", "INT", "STRING", any_typ)
+    RETURN_NAMES = ("时间文本", "时间戳", "Excel格式", "任意输出")
     FUNCTION = "获取当前时间"
     CATEGORY = "【Excel】联动插件/功能节点"
     DESCRIPTION = note
-    OUTPUT_NODE = True  # 添加这一行，表示节点有重要输出
+    OUTPUT_NODE = True
     
-    def IS_CHANGED(self, 前缀, any=None):
+    def IS_CHANGED(self, **kwargs):
         return float("NaN")
 
-    def 获取当前时间(self, 前缀, any=None):
-        当前时间 = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        时间戳 = int(time.time() * 1000)
-        带前缀的格式化时间 = f"{前缀} {当前时间}".strip()
-        print(f"🕐 当前时间: {带前缀的格式化时间}, 时间戳: {时间戳}")
-        return (带前缀的格式化时间, 时间戳)
+    def 获取当前时间(self, 前缀, 时间格式, 自定义格式, 输出格式, any=None):
+        try:
+            import datetime
+            
+            # 获取当前时间
+            当前时间 = datetime.datetime.now()
+            时间戳 = int(time.time() * 1000)  # 毫秒级时间戳
+            
+            # 根据选择的格式生成时间字符串
+            if 时间格式 == "标准日期时间":
+                时间字符串 = 当前时间.strftime("%Y-%m-%d %H:%M:%S")
+            elif 时间格式 == "仅日期":
+                时间字符串 = 当前时间.strftime("%Y-%m-%d")
+            elif 时间格式 == "仅时间":
+                时间字符串 = 当前时间.strftime("%H:%M:%S")
+            elif 时间格式 == "时间戳":
+                时间字符串 = str(时间戳)
+            else:  # 自定义格式
+                时间字符串 = 当前时间.strftime(自定义格式)
+            
+            # 生成Excel兼容的日期时间格式
+            excel_base_date = datetime.datetime(1899, 12, 30)
+            delta = 当前时间 - excel_base_date
+            excel_date = delta.days + (delta.seconds / 86400.0)
+            excel_date_str = str(excel_date)
+            
+            # 添加前缀
+            带前缀的格式化时间 = f"{前缀} {时间字符串}".strip() if 前缀 else 时间字符串
+            
+            # 根据输出格式决定返回值
+            if 输出格式 == "字符串":
+                excel_output = ""
+            elif 输出格式 == "Excel日期":
+                excel_output = excel_date_str
+            else:  # 两者
+                excel_output = f"{时间字符串}|{excel_date_str}"
+            
+            print(f"🕐 当前时间: {带前缀的格式化时间}")
+            print(f"📊 时间戳: {时间戳}")
+            print(f"📈 Excel日期值: {excel_date_str}")
+            
+            # 返回任意输入作为第四个输出
+            return (带前缀的格式化时间, 时间戳, excel_output, any)
+            
+        except Exception as e:
+            error_msg = f"时间获取失败: {str(e)}"
+            print(f"❌ {error_msg}")
+            return (error_msg, 0, "", any)
 
+#======写入Excel时间
+class 写入Excel时间:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "表格路径": ("STRING", {"default": ""}),
+                "工作表名称": ("STRING", {"default": "Sheet1"}),
+                "行号": ("INT", {"default": 1, "min": 1, "max": 10000}),
+                "列号": ("INT", {"default": 1, "min": 1, "max": 100}),
+                "时间数据": ("STRING", {"default": ""}),
+                "时间格式": (["自动检测", "字符串", "Excel日期", "时间戳"], {"default": "自动检测"}),
+                "设置单元格格式": ("BOOLEAN", {"default": True}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "写入Excel时间"
+    CATEGORY = "【Excel】联动插件/文件处理节点"
+    
+    def IS_CHANGED(self, **kwargs):
+        return float("NaN")
+
+    def 写入Excel时间(self, 表格路径, 工作表名称, 行号, 列号, 时间数据, 时间格式, 设置单元格格式):
+        try:
+            # 基础检查
+            if not os.path.exists(表格路径):
+                return (f"错误: 文件不存在: {表格路径}",)
+                
+            if not 时间数据:
+                return ("错误: 时间数据为空",)
+
+            # 加载工作簿
+            工作簿 = openpyxl.load_workbook(表格路径)
+            if 工作表名称 not in 工作簿.sheetnames:
+                return (f"错误: 工作表不存在: {工作表名称}",)
+                
+            工作表 = 工作簿[工作表名称]
+            单元格 = 工作表.cell(row=行号, column=列号)
+            
+            # 处理时间数据
+            处理后的值 = None
+            单元格格式 = None
+            
+            # 自动检测格式
+            if 时间格式 == "自动检测":
+                if 时间数据.replace('.', '', 1).isdigit():
+                    # 可能是数字（Excel日期或时间戳）
+                    try:
+                        数值 = float(时间数据)
+                        if 数值 > 25568:  # 大概是1970年之后的时间戳
+                            # 可能是毫秒时间戳
+                            if 数值 > 1000000000000:  # 毫秒级时间戳
+                                日期时间 = datetime.datetime.fromtimestamp(数值 / 1000)
+                            else:  # 秒级时间戳
+                                日期时间 = datetime.datetime.fromtimestamp(数值)
+                            处理后的值 = 日期时间
+                            单元格格式 = "yyyy-mm-dd hh:mm:ss"
+                        else:
+                            # Excel日期格式
+                            处理后的值 = 数值
+                            单元格格式 = "yyyy-mm-dd hh:mm:ss"
+                    except:
+                        处理后的值 = 时间数据
+                else:
+                    # 字符串格式
+                    处理后的值 = 时间数据
+                    
+            elif 时间格式 == "字符串":
+                处理后的值 = 时间数据
+                
+            elif 时间格式 == "Excel日期":
+                try:
+                    处理后的值 = float(时间数据)
+                    单元格格式 = "yyyy-mm-dd hh:mm:ss"
+                except:
+                    处理后的值 = 时间数据
+                    
+            elif 时间格式 == "时间戳":
+                try:
+                    时间戳 = float(时间数据)
+                    if 时间戳 > 1000000000000:  # 毫秒级
+                        日期时间 = datetime.datetime.fromtimestamp(时间戳 / 1000)
+                    else:  # 秒级
+                        日期时间 = datetime.datetime.fromtimestamp(时间戳)
+                    处理后的值 = 日期时间
+                    单元格格式 = "yyyy-mm-dd hh:mm:ss"
+                except:
+                    处理后的值 = 时间数据
+            
+            # 设置单元格值
+            单元格.value = 处理后的值
+            
+            # 设置单元格格式
+            if 设置单元格格式 and 单元格格式:
+                from openpyxl.styles import numbers
+                if 单元格格式 == "yyyy-mm-dd hh:mm:ss":
+                    单元格.number_format = numbers.FORMAT_DATE_DATETIME
+            
+            # 保存文件
+            工作簿.save(表格路径)
+            工作簿.close()
+            
+            return (f"时间写入成功! 位置: {行号}行{列号}列",)
+            
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"时间写入错误: {error_details}")
+            return (f"错误: {str(e)}",)
 
 #======随机整数
 class 简单随机种子:

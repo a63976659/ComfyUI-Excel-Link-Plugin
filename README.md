@@ -22,11 +22,6 @@ cd ComfyUI/custom_nodes/
 
 ```
 
-## 字体仅测试使用，商用需自行替换！！！（fonts文件夹）
-
-```
-
-
 
 2. 克隆仓库：
 ```bash
@@ -52,6 +47,12 @@ git clone https://github.com/a63976659/ComfyUI-Any-Path-Repair.git
 3. **电商素材出图**：根据 Excel 中的产品清单，批量处理文件名并叠加 Logo 装饰层。
 
 ---
+
+## 字体仅测试使用，商用需自行替换！！！（fonts文件夹）
+## 音频仅测试使用，商用需自行替换！！！（音频文件夹）
+
+---
+
 
 🔗 **相关资源**
 

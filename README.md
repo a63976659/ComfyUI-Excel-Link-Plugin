@@ -22,6 +22,11 @@ cd ComfyUI/custom_nodes/
 
 ```
 
+## 字体仅测试使用，商用需自行替换！！！（fonts文件夹）
+
+```
+
+
 
 2. 克隆仓库：
 ```bash

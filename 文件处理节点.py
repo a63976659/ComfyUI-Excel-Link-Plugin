@@ -1,10 +1,11 @@
-import os, re, io, base64, shutil, torch, openpyxl
+import os, re, io, base64, shutil, torch, openpyxl, random
 import numpy as np
 from PIL import Image as PILImage
 from openpyxl.drawing.image import Image as OpenpyxlImage
 from openpyxl.utils import get_column_letter
 import folder_paths
 from . import any_typ, note
+import traceback
 
 #====== 替换文件名
 class 替换文件名:
@@ -24,6 +25,10 @@ class 替换文件名:
     DESCRIPTION = "修改指定路径文件的名称，但保留其原始后缀名。常用于批量生成后对文件进行重命名管理。"
     
     def 执行替换(self, 文件路径, 新文件名, any=None):
+        if isinstance(文件路径, list):
+            if len(文件路径) > 0: 文件路径 = 文件路径[0]
+            else: return ("",)
+            
         dir_name = os.path.dirname(文件路径)
         _, ext = os.path.splitext(文件路径)
         clean_name = re.sub(r'[\/:*?"<>|]', '_', 新文件名)
@@ -115,8 +120,12 @@ class 读取Excel数据:
         try:
             wb = openpyxl.load_workbook(表格路径, data_only=True, read_only=True)
             ws = wb[工作表名称]
-            r_start, r_end = (map(int, 行范围.split('-')) if '-' in 行范围 else (int(行范围), int(行范围)))
-            c_start, c_end = (map(int, 列范围.split('-')) if '-' in 列范围 else (int(列范围), int(列范围)))
+            r_parts = re.split(r'[-;；,，\s]+', 行范围.strip())
+            c_parts = re.split(r'[-;；,，\s]+', 列范围.strip())
+            r_start = int(r_parts[0])
+            r_end = int(r_parts[1]) if len(r_parts) > 1 else r_start
+            c_start = int(c_parts[0])
+            c_end = int(c_parts[1]) if len(c_parts) > 1 else c_start
             
             lines = []
             for r in range(r_start, r_end + 1):
@@ -146,6 +155,9 @@ class 写入Excel数据:
 
     def 执行写入(self, 表格路径, 工作表名称, 起始行, 起始列, 数据内容):
         try:
+            if not os.path.exists(表格路径):
+                return (f"文件不存在: {表格路径}",)
+                
             wb = openpyxl.load_workbook(表格路径)
             ws = wb[工作表名称]
             for i, line in enumerate(数据内容.split('\n')):
@@ -153,10 +165,12 @@ class 写入Excel数据:
                     ws.cell(row=起始行 + i, column=起始列 + j).value = val.strip()
             wb.save(表格路径)
             return ("写入成功",)
+        except PermissionError:
+            return ("❌ 写入失败：文件被占用，请关闭 Excel/WPS 后重试！",)
         except Exception as e:
             return (f"写入失败: {str(e)}",)
 
-#====== 图片插入表格
+#====== 图片插入表格 (含列表修复 & 占用检测)
 class 写入Excel图片:
     @classmethod
     def INPUT_TYPES(cls):
@@ -180,31 +194,72 @@ class 写入Excel图片:
     DESCRIPTION = "将图像插入Excel单元格。选择'匹配单元格'时图片根据行列宽自动调整。"
 
     def 执行插入(self, 表格路径, 工作表名称, 行范围, 列范围, 图片路径, 缩放模式, 图片宽度, 图片高度, 跨行数, 跨列数):
+        temp_img_path = None
         try:
+            # 列表检查
+            if isinstance(图片路径, list):
+                if len(图片路径) > 0: 图片路径 = 图片路径[0]
+                else: return ("错误: 图片路径列表为空",)
+
+            # 参数解析
             row = int(re.split(r'[-;；,，\s]+', 行范围.strip())[0])
             col = int(re.split(r'[-;；,，\s]+', 列范围.strip())[0])
             
-            wb = openpyxl.load_workbook(表格路径)
+            # 加载工作簿
+            try:
+                if os.path.exists(表格路径):
+                    wb = openpyxl.load_workbook(表格路径)
+                else:
+                    wb = openpyxl.Workbook()
+                    if 'Sheet' in wb.sheetnames: del wb['Sheet']
+            except PermissionError:
+                return ("❌ 加载失败：文件被占用，请关闭 Excel/WPS 后重试！",)
+            except Exception as load_err:
+                return (f"加载文件失败: {load_err}",)
+
+            if 工作表名称 not in wb.sheetnames:
+                 wb.create_sheet(工作表名称)
             ws = wb[工作表名称]
             
+            # 图像处理
+            if not isinstance(图片路径, str):
+                return (f"错误: 路径类型错误 {type(图片路径)}",)
+
             with PILImage.open(图片路径) as img:
+                img = img.convert("RGB")
                 if 缩放模式 == "匹配单元格":
-                    w = (ws.column_dimensions[get_column_letter(col)].width or 10) * 7 * 跨列数
-                    h = (ws.row_dimensions[row].height or 15) * 1.33 * 跨行数
-                    img = img.resize((int(w), int(h)), PILImage.LANCZOS)
+                    col_w = ws.column_dimensions[get_column_letter(col)].width or 10
+                    row_h = ws.row_dimensions[row].height or 15
+                    target_w = col_w * 7 * 跨列数
+                    target_h = row_h * 1.33 * 跨行数
+                    img = img.resize((int(target_w), int(target_h)), PILImage.LANCZOS)
                 elif 缩放模式 == "固定尺寸":
                     img = img.resize((图片宽度, 图片高度), PILImage.LANCZOS)
+                
+                # 临时文件
+                temp_dir = folder_paths.get_temp_directory()
+                temp_name = f"excel_insert_{random.randint(100000, 999999)}.png"
+                temp_img_path = os.path.abspath(os.path.join(temp_dir, temp_name))
+                img.save(temp_img_path, format="PNG")
 
-                img_stream = io.BytesIO()
-                img.convert("RGB").save(img_stream, format="PNG")
-                img_stream.seek(0)
-                ox_img = OpenpyxlImage(img_stream)
-                ws.add_image(ox_img, get_column_letter(col) + str(row))
+            # 插入
+            ox_img = OpenpyxlImage(temp_img_path)
+            cell_pos = get_column_letter(col) + str(row)
+            ws.add_image(ox_img, cell_pos)
             
+            # 保存
             wb.save(表格路径)
             return (f"图片已插入至 {row}行{col}列",)
+            
+        except PermissionError:
+            return ("❌ 插入失败：文件被占用，请关闭 Excel/WPS 后重试！",)
         except Exception as e:
+            traceback.print_exc()
             return (f"插入失败: {str(e)}",)
+        finally:
+            if temp_img_path and os.path.exists(temp_img_path):
+                try: os.remove(temp_img_path)
+                except: pass
 
 #====== 查找表格数据
 class 查找Excel数据:
@@ -258,11 +313,8 @@ class 读取Excel行列差:
         try:
             wb = openpyxl.load_workbook(表格路径, data_only=True, read_only=True)
             ws = wb[工作表名称]
-            
-            # 统一解析中英文分隔符
             parts = re.split(r'[,，;；\s|]+', 索引.strip())
             indices = [int(p) for p in parts if p.strip().isdigit()]
-            
             if not indices: return (0,)
 
             def count_non_empty(idx):
@@ -279,9 +331,7 @@ class 读取Excel行列差:
                 return (count_non_empty(indices[0]),)
             else:
                 return (count_non_empty(indices[0]) - count_non_empty(indices[1]),)
-                
         except Exception as e:
-            print(f"统计失败: {str(e)}")
             return (0,)
 
 #====== 写入Excel时间
@@ -312,5 +362,7 @@ class 写入Excel时间:
             ws.cell(row=row, column=col).value = 时间数据
             wb.save(表格路径)
             return (f"时间已写入至 {row}行{col}列",)
+        except PermissionError:
+            return ("❌ 写入失败：文件被占用，请关闭 Excel/WPS 后重试！",)
         except Exception as e:
             return (f"写入失败: {str(e)}",)

@@ -78,13 +78,11 @@ class 图像层叠加:
         bg = PILImage.fromarray((底层图像[0].cpu().numpy() * 255).astype(np.uint8)).convert("RGBA")
         fg = PILImage.fromarray((上层图像[0].cpu().numpy() * 255).astype(np.uint8)).convert("RGBA")
         
-        # 缩放上层图
         fg = fg.resize((int(fg.width * 缩放比例), int(fg.height * 缩放比例)), PILImage.LANCZOS)
         if 不透明度 < 1.0:
             alpha = fg.split()[3].point(lambda p: p * 不透明度)
             fg.putalpha(alpha)
             
-        # 计算坐标
         x, y = 0, 0
         if 对齐方式 == "居中":
             x, y = (bg.width - fg.width) // 2, (bg.height - fg.height) // 2
@@ -111,7 +109,7 @@ class 读取Excel数据:
     RETURN_TYPES = ("STRING",)
     FUNCTION = "执行读取"
     CATEGORY = "【Excel】联动插件/文件处理节点"
-    DESCRIPTION = "从Excel中提取文字。支持单行单列（如'2'）或范围读取（如'2-5'）。多个数据将以'|'分隔。"
+    DESCRIPTION = "从Excel中提取文字。支持单行单列或范围读取。多个数据将以'|'分隔。"
 
     def 执行读取(self, 表格路径, 工作表名称, 行范围, 列范围):
         try:
@@ -144,7 +142,7 @@ class 写入Excel数据:
     RETURN_TYPES = ("STRING",)
     FUNCTION = "执行写入"
     CATEGORY = "【Excel】联动插件/文件处理节点"
-    DESCRIPTION = "将文本写入指定位置。如果输入多行文本，程序会自动换行写入。行内数据可用'|'分隔以写入多列。"
+    DESCRIPTION = "将文本写入指定位置。如果输入多行文本，程序会自动换行写入。"
 
     def 执行写入(self, 表格路径, 工作表名称, 起始行, 起始列, 数据内容):
         try:
@@ -158,7 +156,7 @@ class 写入Excel数据:
         except Exception as e:
             return (f"写入失败: {str(e)}",)
 
-#====== 图片插入表格 (匹配单元格优化版)
+#====== 图片插入表格
 class 写入Excel图片:
     @classmethod
     def INPUT_TYPES(cls):
@@ -179,20 +177,18 @@ class 写入Excel图片:
     RETURN_TYPES = ("STRING",)
     FUNCTION = "执行插入"
     CATEGORY = "【Excel】联动插件/文件处理节点"
-    DESCRIPTION = "将图像插入Excel单元格。选择'匹配单元格'时，图片将根据当前行列宽自动调整像素，实现无缝嵌入。"
+    DESCRIPTION = "将图像插入Excel单元格。选择'匹配单元格'时图片根据行列宽自动调整。"
 
     def 执行插入(self, 表格路径, 工作表名称, 行范围, 列范围, 图片路径, 缩放模式, 图片宽度, 图片高度, 跨行数, 跨列数):
         try:
-            # 解析起始行和列
-            row = int(行范围.split('-')[0]) if '-' in 行范围 else int(行范围)
-            col = int(列范围.split('-')[0]) if '-' in 列范围 else int(列范围)
+            row = int(re.split(r'[-;；,，\s]+', 行范围.strip())[0])
+            col = int(re.split(r'[-;；,，\s]+', 列范围.strip())[0])
             
             wb = openpyxl.load_workbook(表格路径)
             ws = wb[工作表名称]
             
             with PILImage.open(图片路径) as img:
                 if 缩放模式 == "匹配单元格":
-                    # 计算物理像素：列宽*7，行高*1.33
                     w = (ws.column_dimensions[get_column_letter(col)].width or 10) * 7 * 跨列数
                     h = (ws.row_dimensions[row].height or 15) * 1.33 * 跨行数
                     img = img.resize((int(w), int(h)), PILImage.LANCZOS)
@@ -226,7 +222,7 @@ class 查找Excel数据:
     RETURN_NAMES = ("结果文本", "行号", "列号")
     FUNCTION = "执行查找"
     CATEGORY = "【Excel】联动插件/文件处理节点"
-    DESCRIPTION = "在工作表中搜索指定内容，返回其所在的行号 and 列号。适用于动态定位数据位置。"
+    DESCRIPTION = "在工作表中搜索指定内容，返回其所在的行号和列号。"
 
     def 执行查找(self, 表格路径, 工作表名称, 查找内容, 查找模式):
         try:
@@ -241,7 +237,7 @@ class 查找Excel数据:
         except Exception as e:
             return (f"查找错误: {str(e)}", 0, 0)
 
-#====== 读取表格数量差
+#====== 读取表格数量统计/差值
 class 读取Excel行列差:
     @classmethod
     def INPUT_TYPES(cls):
@@ -254,19 +250,24 @@ class 读取Excel行列差:
             }
         }
     RETURN_TYPES = ("INT",)
-    FUNCTION = "计算差值"
+    FUNCTION = "计算逻辑"
     CATEGORY = "【Excel】联动插件/文件处理节点"
-    DESCRIPTION = "统计两行或两列中非空单元格的数量差。输入'1,3'将计算第1条与第3条之间的数量差异。"
+    DESCRIPTION = "输入单值(如 1)统计非空总数；输入多值(如 1,3)计算数量差。支持中英文及空格分隔。"
 
-    def 计算差值(self, 表格路径, 工作表名称, 读取模式, 索引):
+    def 计算逻辑(self, 表格路径, 工作表名称, 读取模式, 索引):
         try:
             wb = openpyxl.load_workbook(表格路径, data_only=True, read_only=True)
             ws = wb[工作表名称]
-            idx1, idx2 = map(int, 索引.split(','))
             
-            def count_non_empty(mode, idx):
+            # 统一解析中英文分隔符
+            parts = re.split(r'[,，;；\s|]+', 索引.strip())
+            indices = [int(p) for p in parts if p.strip().isdigit()]
+            
+            if not indices: return (0,)
+
+            def count_non_empty(idx):
                 count = 0
-                if mode == "读行":
+                if 读取模式 == "读行":
                     for c in range(1, ws.max_column + 1):
                         if ws.cell(idx, c).value is not None: count += 1
                 else:
@@ -274,8 +275,14 @@ class 读取Excel行列差:
                         if ws.cell(r, idx).value is not None: count += 1
                 return count
 
-            return (count_non_empty(读取模式, idx1) - count_non_empty(读取模式, idx2),)
-        except: return (0,)
+            if len(indices) == 1:
+                return (count_non_empty(indices[0]),)
+            else:
+                return (count_non_empty(indices[0]) - count_non_empty(indices[1]),)
+                
+        except Exception as e:
+            print(f"统计失败: {str(e)}")
+            return (0,)
 
 #====== 写入Excel时间
 class 写入Excel时间:
@@ -293,13 +300,12 @@ class 写入Excel时间:
     RETURN_TYPES = ("STRING",)
     FUNCTION = "执行写入"
     CATEGORY = "【Excel】联动插件/文件处理节点"
-    DESCRIPTION = "快速向指定单元格写入时间文本。支持行范围和列范围输入。"
+    DESCRIPTION = "向指定单元格写入时间文本。支持灵活的范围格式解析。"
 
     def 执行写入(self, 表格路径, 工作表名称, 行范围, 列范围, 时间数据):
         try:
-            # 解析起始行和列
-            row = int(行范围.split('-')[0]) if '-' in 行范围 else int(行范围)
-            col = int(列范围.split('-')[0]) if '-' in 列范围 else int(列范围)
+            row = int(re.split(r'[-;；,，\s]+', 行范围.strip())[0])
+            col = int(re.split(r'[-;；,，\s]+', 列范围.strip())[0])
             
             wb = openpyxl.load_workbook(表格路径)
             ws = wb[工作表名称]

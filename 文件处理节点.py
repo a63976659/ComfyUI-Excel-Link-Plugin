@@ -166,7 +166,8 @@ class 写入Excel图片:
             "required": {
                 "表格路径": ("STRING", {"default": ""}),
                 "工作表名称": ("STRING", {"default": "Sheet1"}),
-                "位置": ("STRING", {"default": "1,1"}),
+                "行范围": ("STRING", {"default": "1"}),
+                "列范围": ("STRING", {"default": "1"}),
                 "图片路径": ("STRING", {"default": ""}),
                 "缩放模式": (["匹配单元格", "固定尺寸", "原图大小"], {"default": "匹配单元格"}),
                 "图片宽度": ("INT", {"default": 300}),
@@ -180,9 +181,12 @@ class 写入Excel图片:
     CATEGORY = "【Excel】联动插件/文件处理节点"
     DESCRIPTION = "将图像插入Excel单元格。选择'匹配单元格'时，图片将根据当前行列宽自动调整像素，实现无缝嵌入。"
 
-    def 执行插入(self, 表格路径, 工作表名称, 位置, 图片路径, 缩放模式, 图片宽度, 图片高度, 跨行数, 跨列数):
+    def 执行插入(self, 表格路径, 工作表名称, 行范围, 列范围, 图片路径, 缩放模式, 图片宽度, 图片高度, 跨行数, 跨列数):
         try:
-            row, col = map(int, 位置.replace('，', ',').split(','))
+            # 解析起始行和列
+            row = int(行范围.split('-')[0]) if '-' in 行范围 else int(行范围)
+            col = int(列范围.split('-')[0]) if '-' in 列范围 else int(列范围)
+            
             wb = openpyxl.load_workbook(表格路径)
             ws = wb[工作表名称]
             
@@ -202,7 +206,7 @@ class 写入Excel图片:
                 ws.add_image(ox_img, get_column_letter(col) + str(row))
             
             wb.save(表格路径)
-            return (f"插入成功至{位置}",)
+            return (f"图片已插入至 {row}行{col}列",)
         except Exception as e:
             return (f"插入失败: {str(e)}",)
 
@@ -222,7 +226,7 @@ class 查找Excel数据:
     RETURN_NAMES = ("结果文本", "行号", "列号")
     FUNCTION = "执行查找"
     CATEGORY = "【Excel】联动插件/文件处理节点"
-    DESCRIPTION = "在工作表中搜索指定内容，返回其所在的行号和列号。适用于动态定位数据位置。"
+    DESCRIPTION = "在工作表中搜索指定内容，返回其所在的行号 and 列号。适用于动态定位数据位置。"
 
     def 执行查找(self, 表格路径, 工作表名称, 查找内容, 查找模式):
         try:
@@ -281,22 +285,26 @@ class 写入Excel时间:
             "required": {
                 "表格路径": ("STRING", {"default": ""}),
                 "工作表名称": ("STRING", {"default": "Sheet1"}),
-                "位置": ("STRING", {"default": "1,1"}),
+                "行范围": ("STRING", {"default": "1"}),
+                "列范围": ("STRING", {"default": "1"}),
                 "时间数据": ("STRING", {"default": ""}),
             }
         }
     RETURN_TYPES = ("STRING",)
     FUNCTION = "执行写入"
     CATEGORY = "【Excel】联动插件/文件处理节点"
-    DESCRIPTION = "快速向指定单元格写入时间文本。位置格式为'行,列'。"
+    DESCRIPTION = "快速向指定单元格写入时间文本。支持行范围和列范围输入。"
 
-    def 执行写入(self, 表格路径, 工作表名称, 位置, 时间数据):
+    def 执行写入(self, 表格路径, 工作表名称, 行范围, 列范围, 时间数据):
         try:
-            row, col = map(int, 位置.replace('，', ',').split(','))
+            # 解析起始行和列
+            row = int(行范围.split('-')[0]) if '-' in 行范围 else int(行范围)
+            col = int(列范围.split('-')[0]) if '-' in 列范围 else int(列范围)
+            
             wb = openpyxl.load_workbook(表格路径)
             ws = wb[工作表名称]
             ws.cell(row=row, column=col).value = 时间数据
             wb.save(表格路径)
-            return (f"写入成功于{位置}",)
+            return (f"时间已写入至 {row}行{col}列",)
         except Exception as e:
             return (f"写入失败: {str(e)}",)
